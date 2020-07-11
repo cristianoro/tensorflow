@@ -26,16 +26,16 @@ limitations under the License.
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
-#include "mlir/IR/Attributes.h"  // TF:llvm-project
-#include "mlir/IR/Block.h"  // TF:llvm-project
-#include "mlir/IR/Builders.h"  // TF:llvm-project
-#include "mlir/IR/Location.h"  // TF:llvm-project
-#include "mlir/IR/Module.h"  // TF:llvm-project
-#include "mlir/IR/Operation.h"  // TF:llvm-project
-#include "mlir/IR/StandardTypes.h"  // TF:llvm-project
-#include "mlir/IR/Value.h"  // TF:llvm-project
-#include "mlir/Support/LLVM.h"  // TF:llvm-project
-#include "mlir/Support/LogicalResult.h"  // TF:llvm-project
+#include "mlir/IR/Attributes.h"  // from @llvm-project
+#include "mlir/IR/Block.h"  // from @llvm-project
+#include "mlir/IR/Builders.h"  // from @llvm-project
+#include "mlir/IR/Location.h"  // from @llvm-project
+#include "mlir/IR/Module.h"  // from @llvm-project
+#include "mlir/IR/Operation.h"  // from @llvm-project
+#include "mlir/IR/StandardTypes.h"  // from @llvm-project
+#include "mlir/IR/Value.h"  // from @llvm-project
+#include "mlir/Support/LLVM.h"  // from @llvm-project
+#include "mlir/Support/LogicalResult.h"  // from @llvm-project
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_device.h"
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_executor.h"
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_ops.h"
@@ -49,6 +49,7 @@ namespace TF {
 namespace {
 
 constexpr int64_t kUnknownResourceId = -1;
+constexpr char kResourceArgUniqueIdAttr[] = "tf._resource_arg_unique_id";
 
 // Returns if a VarHandleOp is anonymous, which means it always creates a new
 // variable.
@@ -99,8 +100,7 @@ int64_t FindPassthroughArgumentForReturnValue(int64_t return_index,
       value = graph.GetFetch().getOperand(res_num);
     } else if (auto island = llvm::dyn_cast<tf_executor::IslandOp>(op)) {
       value = island.GetYield().getOperand(res_num);
-    } else if (llvm::isa<TF::IdentityNOp>(op) ||
-               llvm::isa<TF::IdentityOp>(op)) {
+    } else if (llvm::isa<TF::IdentityNOp, TF::IdentityOp>(op)) {
       value = op->getOperand(res_num);
     } else {
       return -1;
@@ -118,20 +118,38 @@ ResourceAliasAnalysis::ResourceAliasAnalysis(Operation* op) {
 }
 
 void ResourceAliasAnalysis::AnalyzeFunction(FuncOp func_op) {
-  // This function populates resource_value_to_ids_.
-  //
-  // TODO(yuanzx): Pass variable aliasing information to functions so we can
-  // properly resolve aliasing arguments.
-  //
-  // Before having that, we assume function arguments do not alias each other.
+  // This function populates resource_value_to_ids_ and id_to_resource_values_.
+
+  // If the "tf.resource_arg_unique_id" argument attributes are present for
+  // resource-type arguments, respect them when choosing IDs; otherwise, they
+  // must not alias.
   int64_t next_unique_id = 0;
+  const bool has_arg_unique_id_attrs =
+      llvm::any_of(func_op.getArguments(), [&](const BlockArgument& arg) {
+        return func_op.getArgAttr(arg.getArgNumber(), kResourceArgUniqueIdAttr);
+      });
+  // Maps the kResourceArgUniqueIdAttr attribute value to the internal integer
+  // ID used by this pass.
+  llvm::SmallDenseMap<int64_t, int64_t> attr_id_to_internal_id;
   for (auto arg : func_op.getArguments()) {
     if (!mlir::getElementTypeOrSelf(arg.getType()).isa<TF::ResourceType>())
       continue;
-    resource_value_to_ids_[arg].insert(next_unique_id++);
+    if (has_arg_unique_id_attrs) {
+      auto id_attr = func_op.getArgAttrOfType<IntegerAttr>(
+          arg.getArgNumber(), kResourceArgUniqueIdAttr);
+      assert(id_attr &&
+             "tf.resource_arg_unique_id attribute should exist on either none "
+             "or all arguments.");
+      auto emplace_res = attr_id_to_internal_id.try_emplace(id_attr.getInt(),
+                                                            next_unique_id++);
+      AddValueUniqueIDMapping(arg, emplace_res.first->getSecond());
+    } else {
+      AddValueUniqueIDMapping(arg, next_unique_id++);
+    }
   }
   llvm::StringMap<int64_t> var_handle_name_id_map;
-  auto forward_input_to_output = [&](Value operand, Value result) {
+  auto forward_input_to_output = [&](const Value& operand,
+                                     const Value& result) {
     if (!mlir::getElementTypeOrSelf(result.getType()).isa<TF::ResourceType>())
       return;
     auto& result_ids = resource_value_to_ids_[result];
@@ -146,11 +164,11 @@ void ResourceAliasAnalysis::AnalyzeFunction(FuncOp func_op) {
 
   func_op.walk([&](Operation* op) {
     if (auto var_handle = llvm::dyn_cast<TF::VarHandleOp>(op)) {
-      resource_value_to_ids_[var_handle.resource()].insert(
+      AddValueUniqueIDMapping(
+          var_handle.resource(),
           GetOrCreateIdForVarHandle(var_handle, &next_unique_id,
                                     &var_handle_name_id_map));
-    } else if (llvm::isa<TF::IdentityNOp>(op) ||
-               llvm::isa<TF::IdentityOp>(op)) {
+    } else if (llvm::isa<TF::IdentityNOp, TF::IdentityOp>(op)) {
       for (auto operand_and_result :
            llvm::zip(op->getOperands(), op->getResults())) {
         forward_input_to_output(std::get<0>(operand_and_result),
@@ -162,7 +180,7 @@ void ResourceAliasAnalysis::AnalyzeFunction(FuncOp func_op) {
       // different resources.
       for (auto arg : replicate.GetBody().getArguments()) {
         if (mlir::getElementTypeOrSelf(arg.getType()).isa<TF::ResourceType>()) {
-          resource_value_to_ids_[arg].insert(next_unique_id++);
+          AddValueUniqueIDMapping(arg, next_unique_id++);
         }
       }
     } else if (auto while_op = llvm::dyn_cast<TF::WhileOp>(op)) {
@@ -180,7 +198,7 @@ void ResourceAliasAnalysis::AnalyzeFunction(FuncOp func_op) {
           forward_input_to_output(while_op.getOperand(passthrough_operand),
                                   result.value());
         } else {
-          resource_value_to_ids_[result.value()].insert(kUnknownResourceId);
+          AddValueUniqueIDMapping(result.value(), kUnknownResourceId);
         }
       }
     } else if (auto if_op = llvm::dyn_cast<TF::IfOp>(op)) {
@@ -205,7 +223,7 @@ void ResourceAliasAnalysis::AnalyzeFunction(FuncOp func_op) {
           forward_input_to_output(if_op.getOperand(passthrough_else_arg + 1),
                                   result.value());
         } else {
-          resource_value_to_ids_[result.value()].insert(kUnknownResourceId);
+          AddValueUniqueIDMapping(result.value(), kUnknownResourceId);
         }
       }
     } else {
@@ -213,7 +231,7 @@ void ResourceAliasAnalysis::AnalyzeFunction(FuncOp func_op) {
         if (!mlir::getElementTypeOrSelf(result.getType())
                  .isa<TF::ResourceType>())
           continue;
-        resource_value_to_ids_[result].insert(kUnknownResourceId);
+        AddValueUniqueIDMapping(result, kUnknownResourceId);
       }
     }
   });
@@ -236,6 +254,24 @@ const llvm::SmallSet<int64_t, 8>& ResourceAliasAnalysis::GetResourceUniqueIds(
   return it->getSecond();
 }
 
+const llvm::SmallSetVector<Value, 8>&
+ResourceAliasAnalysis::GetUniqueIdResources(const int64_t id) const {
+  auto it = id_to_resource_values_.find(id);
+  assert(it != id_to_resource_values_.end() && "Unseen id was queried");
+  return it->getSecond();
+}
+
+llvm::SmallSetVector<Value, 8> ResourceAliasAnalysis::GetResourceAliases(
+    const Value resource) const {
+  assert(!IsUnknownResource(resource) && "Unseen resource was queried");
+  llvm::SmallSetVector<Value, 8> aliases;
+  for (int64_t id : GetResourceUniqueIds(resource)) {
+    const llvm::SmallSetVector<Value, 8>& resources_aliasing_id =
+        GetUniqueIdResources(id);
+    aliases.insert(resources_aliasing_id.begin(), resources_aliasing_id.end());
+  }
+  return aliases;
+}
 namespace {
 
 // Returns a set that contains only kUnknownResourceId.
@@ -296,13 +332,19 @@ bool OpIsDeclaration(Operation* op,
                      const ResourceAliasAnalysis& alias_analysis) {
   // TODO(yuanzx): Add other types of resources.
   return llvm::isa<TF::VarHandleOp>(op) ||
-         ((llvm::isa<TF::IdentityNOp>(op) || llvm::isa<TF::IdentityOp>(op)) &&
+         (llvm::isa<TF::IdentityNOp, TF::IdentityOp>(op) &&
           !FindAccessedResources(op, alias_analysis).empty());
 }
 
 // Returns if `op` is know to not have any side effect.
 bool OpIsKnownToHaveNoSideEffect(Operation* op) {
-  if (op->hasNoSideEffect()) return true;
+  // TODO(riverriddle) We shouldn't treat all terminator operations as having
+  // side effects, this should be relaxed.
+  // TODO(riverriddle) Properly handle region side effects.
+  if (MemoryEffectOpInterface::hasNoEffect(op) && op->isKnownNonTerminator() &&
+      op->getNumRegions() == 0) {
+    return true;
+  }
   if (auto if_op = llvm::dyn_cast<TF::IfOp>(op)) {
     return if_op.is_stateless();
   }
@@ -413,7 +455,7 @@ void SideEffectAnalysis::AnalyzeRegion(
 
   // Returns whether an access to `resource` can skip control edges from
   // previous accesses to unknown resources, due to that earlier accesses to
-  // `resource` already indirectly tracked previous accesses to uknown
+  // `resource` already indirectly tracked previous accesses to unknown
   // resources. `read_only` specifies the type of access of the current op being
   // considered.
   auto unknown_access_indirectly_tracked_by_resource = [&](int64_t resource,

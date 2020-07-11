@@ -72,7 +72,7 @@ class IteratorTest(test_base.DatasetTestBase, parameterized.TestCase):
     dataset = (
         dataset_ops.Dataset.from_tensor_slices([0.0, 1.0, 2.0])
         .map(lambda x: x + var))
-    with self.assertRaisesRegexp(
+    with self.assertRaisesRegex(
         ValueError, r"`Dataset.make_one_shot_iterator\(\)` does not support "
         "datasets that capture stateful objects.+myvar"):
       dataset_ops.make_one_shot_iterator(dataset)
@@ -213,17 +213,17 @@ class IteratorTest(test_base.DatasetTestBase, parameterized.TestCase):
     next_element = iterator.get_next()
 
     with self.cached_session() as sess:
-      with self.assertRaisesRegexp(errors.InvalidArgumentError, ""):
+      with self.assertRaisesRegex(errors.InvalidArgumentError, ""):
         sess.run(next_element)
 
       # Test that subsequent attempts to use the iterator also fail.
-      with self.assertRaisesRegexp(errors.InvalidArgumentError, ""):
+      with self.assertRaisesRegex(errors.InvalidArgumentError, ""):
         sess.run(next_element)
 
     with self.cached_session() as sess:
 
       def consumer_thread():
-        with self.assertRaisesRegexp(errors.InvalidArgumentError, ""):
+        with self.assertRaisesRegex(errors.InvalidArgumentError, ""):
           sess.run(next_element)
 
       num_threads = 8
@@ -293,8 +293,8 @@ class IteratorTest(test_base.DatasetTestBase, parameterized.TestCase):
     get_next = iterator.get_next()
 
     with self.cached_session() as sess:
-      with self.assertRaisesRegexp(errors.FailedPreconditionError,
-                                   "iterator has not been initialized"):
+      with self.assertRaisesRegex(errors.FailedPreconditionError,
+                                  "iterator has not been initialized"):
         sess.run(get_next)
 
   @combinations.generate(test_base.graph_only_combinations())
@@ -994,6 +994,27 @@ class IteratorTest(test_base.DatasetTestBase, parameterized.TestCase):
     ds = dataset_ops.Dataset.range(10)
     self.assertEqual(sum_dataset(ds).numpy(), 45)
     self.assertEqual(sum_dataset(ds).numpy(), 45)
+
+  @combinations.generate(test_base.default_test_combinations())
+  def testNestedAutomaticControlDependencies(self):
+    counter_var = variables.Variable(0)
+
+    def map_fn(x):
+      counter_var.assign_add(1)
+      return x
+
+    def dataset_fn():
+      return dataset_ops.Dataset.range(10).map(map_fn)
+
+    @def_function.function
+    def fn():
+      it = iter(dataset_fn())
+      for _ in range(10):
+        _ = next(it)
+      return counter_var
+
+    self.evaluate(counter_var.initializer)
+    self.assertEqual(self.evaluate(fn()), 10)
 
 
 if __name__ == "__main__":

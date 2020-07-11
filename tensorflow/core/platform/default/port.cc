@@ -46,7 +46,7 @@ limitations under the License.
 #endif
 
 #if TENSORFLOW_USE_NUMA
-#include "hwloc.h"  // TF:hwloc
+#include "hwloc.h"  // from @hwloc
 #endif
 
 namespace tensorflow {
@@ -332,21 +332,33 @@ bool Snappy_Uncompress(const char* input, size_t length, char* output) {
 #endif
 }
 
+bool Snappy_UncompressToIOVec(const char* compressed, size_t compressed_length,
+                              const struct iovec* iov, size_t iov_cnt) {
+#ifdef TF_USE_SNAPPY
+  return snappy::RawUncompressToIOVec(compressed, compressed_length, iov,
+                                      iov_cnt);
+#else
+  return false;
+#endif
+}
+
 string Demangle(const char* mangled) { return mangled; }
 
 double NominalCPUFrequency() {
   return absl::base_internal::NominalCPUFrequency();
 }
 
-int64 AvailableRam() {
+MemoryInfo GetMemoryInfo() {
+  MemoryInfo mem_info = {INT64_MAX, INT64_MAX};
 #if defined(__linux__) && !defined(__ANDROID__)
   struct sysinfo info;
   int err = sysinfo(&info);
   if (err == 0) {
-    return info.freeram;
+    mem_info.free = info.freeram;
+    mem_info.total = info.totalram;
   }
 #endif
-  return INT64_MAX;
+  return mem_info;
 }
 
 }  // namespace port

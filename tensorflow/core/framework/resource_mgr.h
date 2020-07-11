@@ -23,6 +23,7 @@ limitations under the License.
 #include <unordered_map>
 
 #include "tensorflow/core/framework/common_shape_fns.h"
+#include "tensorflow/core/framework/device_attributes.pb.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/resource_handle.h"
 #include "tensorflow/core/framework/tensor.h"
@@ -94,7 +95,6 @@ class ScopedStepContainer {
   ScopedStepContainer(const int64 step_id,
                       std::function<void(const string&)> cleanup)
       : container_(strings::StrCat("__per_step_", step_id)),
-        step_id_(step_id),
         cleanup_(cleanup),
         dirty_(false) {}
 
@@ -102,13 +102,12 @@ class ScopedStepContainer {
                       std::function<void(const string&)> cleanup,
                       const string& prefix)
       : container_(strings::StrCat("__", prefix, "_per_step_", step_id)),
-        step_id_(step_id),
         cleanup_(cleanup),
         dirty_(false) {}
 
   ~ScopedStepContainer() { CleanUp(); }
 
-  void CleanUp() NO_THREAD_SAFETY_ANALYSIS {
+  void CleanUp() TF_NO_THREAD_SAFETY_ANALYSIS {
     // NOTE(mrry): Avoid acquiring the mutex in the case that the container is
     // clean.
     if (dirty_) {
@@ -143,14 +142,11 @@ class ScopedStepContainer {
   Status LookupOrCreate(ResourceMgr* rm, const string& name, T** resource,
                         std::function<Status(T**)> creator) TF_MUST_USE_RESULT;
 
-  const int64 step_id() const { return step_id_; }
-
  private:
   const string container_;
-  const int64 step_id_;
   const std::function<void(const string&)> cleanup_;
   mutex mu_;
-  mutable std::atomic<bool> dirty_ GUARDED_BY(mu_);
+  mutable std::atomic<bool> dirty_ TF_GUARDED_BY(mu_);
 };
 
 class ResourceMgr {
@@ -253,20 +249,20 @@ class ResourceMgr {
 
   const string default_container_;
   mutable mutex mu_;
-  std::unordered_map<string, Container*> containers_ GUARDED_BY(mu_);
+  std::unordered_map<string, Container*> containers_ TF_GUARDED_BY(mu_);
 
   template <typename T, bool use_dynamic_cast = false>
   Status LookupInternal(const string& container, const string& name,
                         T** resource) const
-      SHARED_LOCKS_REQUIRED(mu_) TF_MUST_USE_RESULT;
+      TF_SHARED_LOCKS_REQUIRED(mu_) TF_MUST_USE_RESULT;
 
   Status DoCreate(const string& container, TypeIndex type, const string& name,
                   ResourceBase* resource)
-      EXCLUSIVE_LOCKS_REQUIRED(mu_) TF_MUST_USE_RESULT;
+      TF_EXCLUSIVE_LOCKS_REQUIRED(mu_) TF_MUST_USE_RESULT;
 
   Status DoLookup(const string& container, TypeIndex type, const string& name,
                   ResourceBase** resource) const
-      SHARED_LOCKS_REQUIRED(mu_) TF_MUST_USE_RESULT;
+      TF_SHARED_LOCKS_REQUIRED(mu_) TF_MUST_USE_RESULT;
 
   Status DoDelete(const string& container, uint64 type_hash_code,
                   const string& resource_name,
@@ -276,16 +272,16 @@ class ResourceMgr {
 
   // Inserts the type name for 'hash_code' into the hash_code to type name map.
   Status InsertDebugTypeName(uint64 hash_code, const string& type_name)
-      EXCLUSIVE_LOCKS_REQUIRED(mu_) TF_MUST_USE_RESULT;
+      TF_EXCLUSIVE_LOCKS_REQUIRED(mu_) TF_MUST_USE_RESULT;
 
   // Returns the type name for the 'hash_code'.
   // Returns "<unknown>" if a resource with such a type was never inserted into
   // the container.
   const char* DebugTypeName(uint64 hash_code) const
-      EXCLUSIVE_LOCKS_REQUIRED(mu_);
+      TF_EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
   // Map from type hash_code to type name.
-  std::unordered_map<uint64, string> debug_type_names_ GUARDED_BY(mu_);
+  std::unordered_map<uint64, string> debug_type_names_ TF_GUARDED_BY(mu_);
 
   TF_DISALLOW_COPY_AND_ASSIGN(ResourceMgr);
 };
@@ -305,7 +301,17 @@ ResourceHandle MakeResourceHandle(
   return MakeResourceHandle(
       container.empty() ? ctx->resource_manager()->default_container()
                         : container,
-      name, *ctx->device(), MakeTypeIndex<T>(), dtypes_and_shapes);
+      name, *ctx->device(), TypeIndex::Make<T>(), dtypes_and_shapes);
+}
+
+template <typename T>
+ResourceHandle MakeResourceHandle(
+    OpKernelConstruction* ctx, const string& container, const string& name,
+    const std::vector<DtypeAndPartialTensorShape>& dtypes_and_shapes = {}) {
+  return MakeResourceHandle(
+      container.empty() ? ctx->resource_manager()->default_container()
+                        : container,
+      name, *ctx->device(), TypeIndex::Make<T>(), dtypes_and_shapes);
 }
 
 Status MakeResourceHandleToOutput(OpKernelContext* context, int output_index,
@@ -583,7 +589,7 @@ Status ResourceMgr::Create(const string& container, const string& name,
   CheckDeriveFromResourceBase<T>();
   CHECK(resource != nullptr);
   mutex_lock l(mu_);
-  return DoCreate(container, MakeTypeIndex<T>(), name, resource);
+  return DoCreate(container, TypeIndex::Make<T>(), name, resource);
 }
 
 template <typename T, bool use_dynamic_cast>
@@ -629,7 +635,7 @@ template <typename T, bool use_dynamic_cast>
 Status ResourceMgr::LookupInternal(const string& container, const string& name,
                                    T** resource) const {
   ResourceBase* found = nullptr;
-  Status s = DoLookup(container, MakeTypeIndex<T>(), name, &found);
+  Status s = DoLookup(container, TypeIndex::Make<T>(), name, &found);
   if (s.ok()) {
     // It's safe to down cast 'found' to T* since
     // typeid(T).hash_code() is part of the map key.
@@ -654,7 +660,7 @@ Status ResourceMgr::LookupOrCreate(const string& container, const string& name,
   s = LookupInternal<T, use_dynamic_cast>(container, name, resource);
   if (s.ok()) return s;
   TF_RETURN_IF_ERROR(creator(resource));
-  s = DoCreate(container, MakeTypeIndex<T>(), name, *resource);
+  s = DoCreate(container, TypeIndex::Make<T>(), name, *resource);
   if (!s.ok()) {
     return errors::Internal("LookupOrCreate failed unexpectedly");
   }
@@ -665,7 +671,7 @@ Status ResourceMgr::LookupOrCreate(const string& container, const string& name,
 template <typename T>
 Status ResourceMgr::Delete(const string& container, const string& name) {
   CheckDeriveFromResourceBase<T>();
-  return DoDelete(container, MakeTypeIndex<T>(), name);
+  return DoDelete(container, TypeIndex::Make<T>(), name);
 }
 
 template <typename T>
@@ -704,7 +710,7 @@ Status ValidateDevice(OpKernelContext* ctx, const ResourceHandle& p);
 template <typename T>
 Status ValidateDeviceAndType(OpKernelContext* ctx, const ResourceHandle& p) {
   TF_RETURN_IF_ERROR(internal::ValidateDevice(ctx, p));
-  auto type_index = MakeTypeIndex<T>();
+  auto type_index = TypeIndex::Make<T>();
   if (type_index.hash_code() != p.hash_code()) {
     return errors::InvalidArgument(
         "Trying to access resource using the wrong type. Expected ",
@@ -877,7 +883,7 @@ ResourceHandle ScopedStepContainer::MakeResourceHandle(
   mutex_lock ml(mu_);
   dirty_ = true;
   return tensorflow::MakeResourceHandle(container_, name, device,
-                                        MakeTypeIndex<T>(), {});
+                                        TypeIndex::Make<T>(), {});
 }
 
 template <typename T>

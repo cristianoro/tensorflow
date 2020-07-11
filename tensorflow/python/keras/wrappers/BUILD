@@ -4,7 +4,7 @@
 load("//tensorflow:tensorflow.bzl", "tf_py_test")
 
 package(
-    default_visibility = ["//visibility:public"],
+    default_visibility = ["//tensorflow/python/keras:__subpackages__"],
     licenses = ["notice"],  # Apache 2.0
 )
 
@@ -35,7 +35,6 @@ tf_py_test(
     deps = [
         ":wrappers",
         "//tensorflow/python:client_testlib",
-        "//tensorflow/python:extra_py_tests_deps",
         "//third_party/py/numpy",
     ],
 )

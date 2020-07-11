@@ -351,7 +351,7 @@ class DatasetTest(test_base.DatasetTestBase, parameterized.TestCase):
   def testSameGraphError(self):
     dataset = dataset_ops.Dataset.range(10)
     with ops.Graph().as_default():
-      with self.assertRaisesRegexp(ValueError, "must be from the same graph"):
+      with self.assertRaisesRegex(ValueError, "must be from the same graph"):
         dataset = dataset.batch(2)
 
   @combinations.generate(
@@ -359,7 +359,7 @@ class DatasetTest(test_base.DatasetTestBase, parameterized.TestCase):
   def testSameGraphErrorOneShot(self):
     dataset = dataset_ops.Dataset.range(10)
     with ops.Graph().as_default():
-      with self.assertRaisesRegexp(
+      with self.assertRaisesRegex(
           ValueError, "Please ensure that all datasets in the pipeline are "
           "created in the same graph as the iterator."):
         _ = dataset_ops.make_one_shot_iterator(dataset)
@@ -369,7 +369,7 @@ class DatasetTest(test_base.DatasetTestBase, parameterized.TestCase):
   def testSameGraphErrorInitializable(self):
     dataset = dataset_ops.Dataset.range(10)
     with ops.Graph().as_default():
-      with self.assertRaisesRegexp(
+      with self.assertRaisesRegex(
           ValueError, "Please ensure that all datasets in the pipeline are "
           "created in the same graph as the iterator."):
         _ = dataset_ops.make_initializable_iterator(dataset)
@@ -514,6 +514,34 @@ class DatasetTest(test_base.DatasetTestBase, parameterized.TestCase):
         dataset_ops.get_legacy_output_types(dataset))
     self.assertEqual(([], ([], []), []),
                      dataset_ops.get_legacy_output_shapes(dataset))
+
+  @combinations.generate(test_base.default_test_combinations())
+  def testNoneComponent(self):
+    dataset = dataset_ops.Dataset.from_tensors((42, None))
+    if context.executing_eagerly():
+      self.assertDatasetProduces(dataset, expected_output=[(42, None)])
+    else:
+      iterator = dataset_ops.make_one_shot_iterator(dataset)
+      next_first, next_second = iterator.get_next()
+      self.assertEqual(next_second, None)
+      with self.cached_session() as sess:
+        self.assertEqual(sess.run(next_first), 42)
+
+  @combinations.generate(test_base.default_test_combinations())
+  def testNoneComponentInFunction(self):
+
+    @def_function.function
+    def fn(ds):
+      total = 0
+      it = iter(ds)
+      for elem in it:
+        x, _ = elem
+        total += x
+      return total
+
+    dataset = dataset_ops.Dataset.range(
+        10, output_type=dtypes.int32).map(lambda x: (x, None))
+    self.assertEqual(self.evaluate(fn(dataset)), 45)
 
 
 if __name__ == "__main__":

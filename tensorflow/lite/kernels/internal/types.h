@@ -128,9 +128,9 @@ struct Dims {
 
 class RuntimeShape {
  public:
-  // Shapes with dimensions up to 4 are stored directly in the structure, while
+  // Shapes with dimensions up to 5 are stored directly in the structure, while
   // larger shapes are separately allocated.
-  static constexpr int kMaxSmallSize = 4;
+  static constexpr int kMaxSmallSize = 5;
 
   RuntimeShape& operator=(RuntimeShape const&) = delete;
 
@@ -207,8 +207,8 @@ class RuntimeShape {
   inline const int32* DimsData() const {
     return size_ > kMaxSmallSize ? dims_pointer_ : dims_;
   }
-  // The caller must ensure that the shape is no bigger than 4-D.
-  inline const int32* DimsDataUpTo4D() const { return dims_; }
+  // The caller must ensure that the shape is no bigger than 5-D.
+  inline const int32* DimsDataUpTo5D() const { return dims_; }
 
   inline void Resize(int dimensions_count) {
     if (size_ > kMaxSmallSize) {
@@ -378,7 +378,7 @@ inline size_t ReducedOutputOffset(const int num_dims, const int* dims,
 
 inline int Offset(const RuntimeShape& shape, int i0, int i1, int i2, int i3) {
   TFLITE_DCHECK_EQ(shape.DimensionsCount(), 4);
-  const int* dims_data = reinterpret_cast<const int*>(shape.DimsDataUpTo4D());
+  const int* dims_data = reinterpret_cast<const int*>(shape.DimsDataUpTo5D());
   TFLITE_DCHECK(i0 >= 0 && i0 < dims_data[0]);
   TFLITE_DCHECK(i1 >= 0 && i1 < dims_data[1]);
   TFLITE_DCHECK(i2 >= 0 && i2 < dims_data[2]);
@@ -765,12 +765,17 @@ struct ArithmeticParams {
   int input1_shift;
   int32 input2_multiplier;
   int input2_shift;
+
+  // TODO(b/158622529): Union the following activation params.
   // uint8, etc, activation params.
   int32 quantized_activation_min;
   int32 quantized_activation_max;
   // float activation params.
   float float_activation_min;
   float float_activation_max;
+  // int64 activation params.
+  int64_t int64_activation_min;
+  int64_t int64_activation_max;
 
   // Processed output dimensions.
   // Let input "a" be the one that broadcasts in the faster-changing dimension.
@@ -854,11 +859,19 @@ struct DepthwiseParams {
   // float activation params.
   float float_activation_min;
   float float_activation_max;
+  const int32* output_multiplier_per_channel;
+  const int32* output_shift_per_channel;
 };
 
 struct DequantizationParams {
   double scale;
   int32 zero_point;
+};
+
+struct PerChannelDequantizationParams {
+  const float* scale;
+  const int32* zero_point;
+  int32 quantized_dimension;
 };
 
 struct FakeQuantParams {
@@ -880,6 +893,9 @@ struct FullyConnectedParams {
   // float activation params.
   float float_activation_min;
   float float_activation_max;
+  // Mark the operands as cacheable if they are unchanging, e.g. weights.
+  bool lhs_cacheable;
+  bool rhs_cacheable;
   FullyConnectedWeightsFormat weights_format;
 };
 
@@ -961,8 +977,10 @@ struct PreluParams {
   int32 input_offset;
   int32 alpha_offset;
   int32 output_offset;
-  int32 output_multiplier;
-  int output_shift;
+  int32 output_multiplier_1;
+  int32 output_shift_1;
+  int32 output_multiplier_2;
+  int32 output_shift_2;
 };
 
 struct PoolParams {
@@ -988,10 +1006,15 @@ struct ReshapeParams {
 
 struct ResizeBilinearParams {
   bool align_corners;
+  // half_pixel_centers assumes pixels are of half the actual dimensions, and
+  // yields more accurate resizes. Corresponds to the same argument for the
+  // original TensorFlow op in TF2.0.
+  bool half_pixel_centers;
 };
 
 struct ResizeNearestNeighborParams {
   bool align_corners;
+  bool half_pixel_centers;
 };
 
 struct SliceParams {
@@ -1015,6 +1038,10 @@ struct SoftmaxParams {
   int32_t zero_point;
   float scale;
   float* table;
+  int16_t* exp_lut;
+  int16_t* one_over_one_plus_x_lut;
+  uint8_t* uint8_table1;
+  uint8_t* uint8_table2;
 };
 
 struct SpaceToBatchParams {
@@ -1040,11 +1067,11 @@ struct SqueezeParams {
 
 struct StridedSliceParams {
   int8 start_indices_count;
-  int32 start_indices[4];
+  int32 start_indices[5];
   int8 stop_indices_count;
-  int32 stop_indices[4];
+  int32 stop_indices[5];
   int8 strides_count;
-  int32 strides[4];
+  int32 strides[5];
 
   int16 begin_mask;
   int16 ellipsis_mask;
@@ -1062,7 +1089,7 @@ struct TanhParams {
 
 struct TransposeParams {
   int8 perm_count;
-  int32 perm[4];
+  int32 perm[5];
 };
 
 struct UnpackParams {
@@ -1073,10 +1100,11 @@ struct UnpackParams {
 struct LeakyReluParams {
   float alpha;
   int32 input_offset;
-  int32 alpha_offset;
   int32 output_offset;
-  int32 output_multiplier;
-  int output_shift;
+  int32 output_multiplier_alpha;
+  int32 output_shift_alpha;
+  int32 output_multiplier_identity;
+  int32 output_shift_identity;
 };
 
 template <typename P>
@@ -1092,6 +1120,12 @@ inline void SetActivationParams(int32 min, int32 max, P* params) {
 }
 
 template <typename P>
+inline void SetActivationParams(int64_t min, int64_t max, P* params) {
+  params->int64_activation_min = min;
+  params->int64_activation_max = max;
+}
+
+template <typename P>
 inline void GetActivationParams(const P& params, int32* min, int32* max) {
   *min = params.quantized_activation_min;
   *max = params.quantized_activation_max;
@@ -1103,6 +1137,11 @@ inline void GetActivationParams(const P& params, float* min, float* max) {
   *max = params.float_activation_max;
 }
 
+template <typename P>
+inline void GetActivationParams(const P& params, int64_t* min, int64_t* max) {
+  *min = params.int64_activation_min;
+  *max = params.int64_activation_max;
+}
 }  // namespace tflite
 
 #endif  // TENSORFLOW_LITE_KERNELS_INTERNAL_TYPES_H_

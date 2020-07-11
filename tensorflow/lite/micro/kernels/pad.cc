@@ -152,8 +152,9 @@ TfLiteStatus Eval(TfLiteContext* context, TfLiteNode* node) {
         // same quantized range as the input and output tensors.
         TF_LITE_ENSURE_EQ(context, op_context.output->params.zero_point,
                           op_context.constant_values->params.zero_point);
-        TF_LITE_ENSURE_EQ(context, op_context.output->params.scale,
-                          op_context.constant_values->params.scale);
+        TF_LITE_ENSURE_EQ(
+            context, static_cast<double>(op_context.output->params.scale),
+            static_cast<double>(op_context.constant_values->params.scale));
         pad_value = *GetTensorData<uint8_t>(op_context.constant_values);
       }
       if (op_context.resizing_category == ResizingCategory::kImageStyle) {
@@ -196,8 +197,8 @@ TfLiteStatus Eval(TfLiteContext* context, TfLiteNode* node) {
     } break;
     default:
 
-      context->ReportError(context, "Type %s not currently supported by Pad.",
-                           TfLiteTypeGetName(op_context.input->type));
+      TF_LITE_KERNEL_LOG(context, "Type %s not currently supported by Pad.",
+                         TfLiteTypeGetName(op_context.input->type));
       return kTfLiteError;
   }
 #undef TF_LITE_PAD
@@ -206,15 +207,27 @@ TfLiteStatus Eval(TfLiteContext* context, TfLiteNode* node) {
 
 }  // namespace pad
 
-TfLiteRegistration* Register_PAD() {
-  static TfLiteRegistration r = {nullptr, nullptr, pad::Prepare, pad::Eval};
-  return &r;
+TfLiteRegistration Register_PAD() {
+  return {/*init=*/nullptr,
+          /*free=*/nullptr,
+          /*prepare=*/pad::Prepare,
+          /*invoke=*/pad::Eval,
+          /*profiling_string=*/nullptr,
+          /*builtin_code=*/0,
+          /*custom_name=*/nullptr,
+          /*version=*/0};
 }
 
 // Also register Pad as PadV2.
-TfLiteRegistration* Register_PADV2() {
-  static TfLiteRegistration r = {nullptr, nullptr, pad::Prepare, pad::Eval};
-  return &r;
+TfLiteRegistration Register_PADV2() {
+  return {/*init=*/nullptr,
+          /*free=*/nullptr,
+          /*prepare=*/pad::Prepare,
+          /*invoke=*/pad::Eval,
+          /*profiling_string=*/nullptr,
+          /*builtin_code=*/0,
+          /*custom_name=*/nullptr,
+          /*version=*/0};
 }
 
 }  // namespace micro

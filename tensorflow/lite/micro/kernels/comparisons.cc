@@ -43,12 +43,14 @@ constexpr int kOutputTensor = 0;
                                                                                \
       int32 input1_multiplier;                                                 \
       int input1_shift;                                                        \
-      QuantizeMultiplierSmallerThanOneExp(input1->params.scale,                \
-                                          &input1_multiplier, &input1_shift);  \
+      QuantizeMultiplierSmallerThanOneExp(                                     \
+          static_cast<double>(input1->params.scale), &input1_multiplier,       \
+          &input1_shift);                                                      \
       int32 input2_multiplier;                                                 \
       int input2_shift;                                                        \
-      QuantizeMultiplierSmallerThanOneExp(input2->params.scale,                \
-                                          &input2_multiplier, &input2_shift);  \
+      QuantizeMultiplierSmallerThanOneExp(                                     \
+          static_cast<double>(input2->params.scale), &input2_multiplier,       \
+          &input2_shift);                                                      \
                                                                                \
       ComparisonParams op_params;                                              \
       op_params.left_shift = left_shift;                                       \
@@ -122,9 +124,8 @@ TfLiteStatus EqualEval(TfLiteContext* context, TfLiteNode* node) {
                                  requires_broadcast);
       break;
     default:
-      context->ReportError(
-          context, "Does not support type %d, requires bool|float|int|uint8",
-          input1->type);
+      TF_LITE_KERNEL_LOG(context, "Type %s (%d) not supported.",
+                         TfLiteTypeGetName(input1->type), input1->type);
       return kTfLiteError;
   }
   return kTfLiteOk;
@@ -158,9 +159,8 @@ TfLiteStatus NotEqualEval(TfLiteContext* context, TfLiteNode* node) {
                                     requires_broadcast);
       break;
     default:
-      context->ReportError(
-          context, "Does not support type %d, requires bool|float|int|uint8",
-          input1->type);
+      TF_LITE_KERNEL_LOG(context, "Type %s (%d) not supported.",
+                         TfLiteTypeGetName(input1->type), input1->type);
       return kTfLiteError;
   }
   return kTfLiteOk;
@@ -190,9 +190,8 @@ TfLiteStatus GreaterEval(TfLiteContext* context, TfLiteNode* node) {
                                    requires_broadcast);
       break;
     default:
-      context->ReportError(context,
-                           "Does not support type %d, requires float|int|uint8",
-                           input1->type);
+      TF_LITE_KERNEL_LOG(context, "Type %s (%d) not supported.",
+                         TfLiteTypeGetName(input1->type), input1->type);
       return kTfLiteError;
   }
   return kTfLiteOk;
@@ -222,9 +221,8 @@ TfLiteStatus GreaterEqualEval(TfLiteContext* context, TfLiteNode* node) {
                                         requires_broadcast);
       break;
     default:
-      context->ReportError(context,
-                           "Does not support type %d, requires float|int|uint8",
-                           input1->type);
+      TF_LITE_KERNEL_LOG(context, "Type %s (%d) not supported.",
+                         TfLiteTypeGetName(input1->type), input1->type);
       return kTfLiteError;
   }
   return kTfLiteOk;
@@ -254,9 +252,8 @@ TfLiteStatus LessEval(TfLiteContext* context, TfLiteNode* node) {
                                 requires_broadcast);
       break;
     default:
-      context->ReportError(context,
-                           "Does not support type %d, requires float|int|uint8",
-                           input1->type);
+      TF_LITE_KERNEL_LOG(context, "Type %s (%d) not supported.",
+                         TfLiteTypeGetName(input1->type), input1->type);
       return kTfLiteError;
   }
   return kTfLiteOk;
@@ -286,9 +283,8 @@ TfLiteStatus LessEqualEval(TfLiteContext* context, TfLiteNode* node) {
                                      requires_broadcast);
       break;
     default:
-      context->ReportError(context,
-                           "Does not support type %d, requires float|int|uint8",
-                           input1->type);
+      TF_LITE_KERNEL_LOG(context, "Type %s (%d) not supported.",
+                         TfLiteTypeGetName(input1->type), input1->type);
       return kTfLiteError;
   }
   return kTfLiteOk;
@@ -297,40 +293,70 @@ TfLiteStatus LessEqualEval(TfLiteContext* context, TfLiteNode* node) {
 }  // namespace
 }  // namespace comparisons
 
-TfLiteRegistration* Register_EQUAL() {
-  static TfLiteRegistration r = {nullptr, nullptr, nullptr,
-                                 comparisons::EqualEval};
-  return &r;
+TfLiteRegistration Register_EQUAL() {
+  return {/*init=*/nullptr,
+          /*free=*/nullptr,
+          /*prepare=*/nullptr,
+          /*invoke=*/comparisons::EqualEval,
+          /*profiling_string=*/nullptr,
+          /*builtin_code=*/0,
+          /*custom_name=*/nullptr,
+          /*version=*/0};
 }
 
-TfLiteRegistration* Register_NOT_EQUAL() {
-  static TfLiteRegistration r = {nullptr, nullptr, nullptr,
-                                 comparisons::NotEqualEval};
-  return &r;
+TfLiteRegistration Register_NOT_EQUAL() {
+  return {/*init=*/nullptr,
+          /*free=*/nullptr,
+          /*prepare=*/nullptr,
+          /*invoke=*/comparisons::NotEqualEval,
+          /*profiling_string=*/nullptr,
+          /*builtin_code=*/0,
+          /*custom_name=*/nullptr,
+          /*version=*/0};
 }
 
-TfLiteRegistration* Register_GREATER() {
-  static TfLiteRegistration r = {nullptr, nullptr, nullptr,
-                                 comparisons::GreaterEval};
-  return &r;
+TfLiteRegistration Register_GREATER() {
+  return {/*init=*/nullptr,
+          /*free=*/nullptr,
+          /*prepare=*/nullptr,
+          /*invoke=*/comparisons::GreaterEval,
+          /*profiling_string=*/nullptr,
+          /*builtin_code=*/0,
+          /*custom_name=*/nullptr,
+          /*version=*/0};
 }
 
-TfLiteRegistration* Register_GREATER_EQUAL() {
-  static TfLiteRegistration r = {nullptr, nullptr, nullptr,
-                                 comparisons::GreaterEqualEval};
-  return &r;
+TfLiteRegistration Register_GREATER_EQUAL() {
+  return {/*init=*/nullptr,
+          /*free=*/nullptr,
+          /*prepare=*/nullptr,
+          /*invoke=*/comparisons::GreaterEqualEval,
+          /*profiling_string=*/nullptr,
+          /*builtin_code=*/0,
+          /*custom_name=*/nullptr,
+          /*version=*/0};
 }
 
-TfLiteRegistration* Register_LESS() {
-  static TfLiteRegistration r = {nullptr, nullptr, nullptr,
-                                 comparisons::LessEval};
-  return &r;
+TfLiteRegistration Register_LESS() {
+  return {/*init=*/nullptr,
+          /*free=*/nullptr,
+          /*prepare=*/nullptr,
+          /*invoke=*/comparisons::LessEval,
+          /*profiling_string=*/nullptr,
+          /*builtin_code=*/0,
+          /*custom_name=*/nullptr,
+          /*version=*/0};
 }
 
-TfLiteRegistration* Register_LESS_EQUAL() {
-  static TfLiteRegistration r = {nullptr, nullptr, nullptr,
-                                 comparisons::LessEqualEval};
-  return &r;
+TfLiteRegistration Register_LESS_EQUAL() {
+  return {/*init=*/nullptr,
+          /*free=*/nullptr,
+          /*prepare=*/nullptr,
+          /*invoke=*/comparisons::LessEqualEval,
+          /*profiling_string=*/nullptr,
+          /*builtin_code=*/0,
+          /*custom_name=*/nullptr,
+          /*version=*/0};
 }
 
 }  // namespace micro

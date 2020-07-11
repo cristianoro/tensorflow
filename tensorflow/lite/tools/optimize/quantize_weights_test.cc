@@ -18,8 +18,8 @@ limitations under the License.
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include "flatbuffers/flatbuffers.h"  // TF:flatbuffers
-#include "flatbuffers/flexbuffers.h"  // TF:flatbuffers
+#include "flatbuffers/flatbuffers.h"  // from @flatbuffers
+#include "flatbuffers/flexbuffers.h"  // from @flatbuffers
 #include "tensorflow/core/lib/io/path.h"
 #include "tensorflow/core/platform/init_main.h"
 #include "tensorflow/core/util/command_line_flags.h"
@@ -215,6 +215,8 @@ TEST_F(QuantizeWeightsTest, HybridConv) {
       } else if (quant_tensor->buffer() != 0) {
         EXPECT_EQ(quant_tensor->type(), TensorType_INT8)
             << quant_tensor->name()->str();
+        auto shape = GetAsVector(quant_tensor->shape());
+        EXPECT_EQ(quant_tensor->quantization()->scale()->size(), shape[0]);
       } else {
         EXPECT_EQ(quant_tensor->type(), TensorType_FLOAT32);
       }

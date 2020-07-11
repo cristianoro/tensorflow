@@ -446,7 +446,7 @@ class SparseResetShapeTest(test_util.TensorFlowTestCase):
     sp_input = self._SparseTensor_2x5x6()
     new_shape = np.array([3, 7, 5], dtype=np.int64)
 
-    with self.assertRaisesRegexp(ValueError, "should have dimension sizes"):
+    with self.assertRaisesRegex(ValueError, "should have dimension sizes"):
       sparse_ops.sparse_reset_shape(sp_input, new_shape)
 
   @test_util.run_deprecated_v1
@@ -705,9 +705,6 @@ class SparseReduceTest(test_util.TensorFlowTestCase):
 
   @test_util.run_deprecated_v1
   def testGradient(self):
-    if np.__version__ == "1.13.0":
-      self.skipTest("numpy 1.13.0 bug")
-
     np.random.seed(8161)
     test_dims = [(11, 1, 5, 7, 1), (2, 2)]
     with self.session(use_gpu=False):
@@ -795,7 +792,7 @@ class SparseMathOpsTest(test_util.TensorFlowTestCase):
       b = sparse_tensor.SparseTensor([[0, 0, 1, 0], [0, 0, 3, 0]], [10, 20],
                                      [1, 1, 4, 2])
       c = a * b
-      with self.assertRaisesRegexp(
+      with self.assertRaisesRegex(
           errors.InvalidArgumentError,
           "broadcasts dense to sparse only; got incompatible shapes"):
         self.evaluate(c)
@@ -1037,7 +1034,7 @@ class SparsePlaceholderTest(test.TestCase):
   @test_util.run_deprecated_v1
   def testPartialShapePlaceholder(self):
     foo = array_ops.sparse_placeholder(dtypes.float32, shape=(None, 47))
-    self.assertAllEqual([None, None], foo.get_shape().as_list())
+    self.assertAllEqual([None, 47], foo.get_shape().as_list())
     self.assertAllEqual([None, 2], foo.indices.get_shape().as_list())
 
   @test_util.run_deprecated_v1

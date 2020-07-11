@@ -157,10 +157,9 @@ TfLiteStatus Eval(TfLiteContext* context, TfLiteNode* node) {
       }
       break;
     default:
-      context->ReportError(context,
-                           "Type %d is currently not supported "
-                           "by StridedSlice.",
-                           op_context.input->type);
+      TF_LITE_KERNEL_LOG(context, "Type %s (%d) not supported.",
+                         TfLiteTypeGetName(op_context.input->type),
+                         op_context.input->type);
       return kTfLiteError;
   }
 #undef TF_LITE_STRIDED_SLICE
@@ -168,11 +167,15 @@ TfLiteStatus Eval(TfLiteContext* context, TfLiteNode* node) {
 }
 }  // namespace strided_slice
 
-TfLiteRegistration* Register_STRIDED_SLICE() {
-  static TfLiteRegistration r = {
-      nullptr, nullptr, strided_slice::Prepare,
-      strided_slice::Eval<strided_slice::kReference>};
-  return &r;
+TfLiteRegistration Register_STRIDED_SLICE() {
+  return {/*init=*/nullptr,
+          /*free=*/nullptr,
+          /*prepare=*/strided_slice::Prepare,
+          /*invoke=*/strided_slice::Eval<strided_slice::kReference>,
+          /*profiling_string=*/nullptr,
+          /*builtin_code=*/0,
+          /*custom_name=*/nullptr,
+          /*version=*/0};
 }
 
 }  // namespace micro

@@ -76,7 +76,7 @@ class BCastList {
   // the same number of dimensions as the larger of the two inputs.
   //
   // If return_flattened_batch_indices is true, the implementation will compute
-  // for each output member of the flattened output, which batch indicies of
+  // for each output member of the flattened output, which batch indices of
   // each input correspond to it. This is disabled by default.
   explicit BCastList(const Vec (&x)[N],
                      const bool fewer_dims_optimization = true,
@@ -139,7 +139,7 @@ BCastList<N>::BCastList(const BCastList::Vec (&x)[N],
     if (x[i] != x[0]) {
       all_equal = false;
     }
-    if (x[i].size() > largest_rank) {
+    if (static_cast<int>(x[i].size()) > largest_rank) {
       largest_rank = x[i].size();
     }
   }
@@ -176,7 +176,7 @@ BCastList<N>::BCastList(const BCastList::Vec (&x)[N],
 
   // 1-extend and align all vectors.
   for (int i = 0; i < N; ++i) {
-    if (copy[i].size() < largest_rank) {
+    if (static_cast<int>(copy[i].size()) < largest_rank) {
       copy[i].resize(largest_rank, 1);
     }
   }
@@ -241,7 +241,7 @@ BCastList<N>::BCastList(const BCastList::Vec (&x)[N],
       // When N != C, we'll continue as usual. However, we might trigger the
       // next block if N == P (because we didn't update the previous state).
       // We trigger the next block if `fewer_dims_optimization` is true.
-      // This means that we did not modify and broadcast / rehshapes in this
+      // This means that we did not modify and broadcast / reshapes in this
       // block (we skipped updating, since the one dimensions can be ignored).
       // In essence, we only need to check whether the previous non-one state is
       // equal to the current non-one state.

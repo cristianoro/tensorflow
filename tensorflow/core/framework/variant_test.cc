@@ -37,7 +37,7 @@ namespace {
 template <typename T, bool BIG>
 struct Wrapper {
   T value;
-  char big[BIG ? 256 : 0];
+  char big[BIG ? 256 : 1];
   string TypeName() const { return "POD"; }
 };
 
@@ -93,7 +93,7 @@ class MaybeAlive {
 
  private:
   bool alive_;
-  char big_[BIG ? 256 : 0];
+  char big_[BIG ? 256 : 1];
   static int live_counter_;
 };
 
@@ -124,7 +124,7 @@ class DeleteCounter {
     rhs.counter_ = nullptr;
   }
   DeleteCounter(const DeleteCounter& rhs) = default;
-  char big_[BIG ? 256 : 0];
+  char big_[BIG ? 256 : 1];
   int* counter_;
 
   string TypeName() const { return "DeleteCounter"; }
@@ -244,7 +244,7 @@ class MoveAndCopyCounter {
     copy_counter_ = rhs.copy_counter_;
     if (copy_counter_) ++*copy_counter_;
   }
-  char big_[BIG ? 256 : 0];
+  char big_[BIG ? 256 : 1];
   int* move_counter_;
   int* copy_counter_;
 
@@ -589,7 +589,7 @@ TEST(VariantTest, TensorListTest) {
   serialized.ToProto(&data);
   const Variant y_unknown = data;
   EXPECT_EQ(y_unknown.TypeName(), "TensorList");
-  EXPECT_EQ(y_unknown.TypeId(), MakeTypeIndex<VariantTensorDataProto>());
+  EXPECT_EQ(y_unknown.TypeId(), TypeIndex::Make<VariantTensorDataProto>());
   EXPECT_EQ(y_unknown.DebugString(),
             strings::StrCat(
                 "Variant<type: TensorList value: ", data.DebugString(), ">"));
@@ -614,7 +614,7 @@ void PodUpdateTest() {
   struct Pod {
     int x;
     float y;
-    char big[BIG ? 256 : 0];
+    char big[BIG ? 256 : 1];
 
     string TypeName() const { return "POD"; }
   };
@@ -637,7 +637,7 @@ void TestEncodeDecodePod() {
   struct Pod {
     int x;
     float y;
-    char big[BIG ? 256 : 0];
+    char big[BIG ? 256 : 1];
 
     string TypeName() const { return "POD"; }
   };

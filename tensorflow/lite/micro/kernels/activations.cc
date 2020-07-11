@@ -107,9 +107,8 @@ TfLiteStatus ReluEval(TfLiteContext* context, TfLiteNode* node) {
       return kTfLiteOk;
     }
     default: {
-      context->ReportError(context,
-                           "Only float32 is supported currently, got %s",
-                           TfLiteTypeGetName(input->type));
+      TF_LITE_KERNEL_LOG(context, "Only float32 is supported currently, got %s",
+                         TfLiteTypeGetName(input->type));
       return kTfLiteError;
     }
   }
@@ -149,9 +148,8 @@ TfLiteStatus Relu6Eval(TfLiteContext* context, TfLiteNode* node) {
       return kTfLiteOk;
     }
     default: {
-      context->ReportError(context,
-                           "Only float32 is supported currently, got %s",
-                           TfLiteTypeGetName(input->type));
+      TF_LITE_KERNEL_LOG(context, "Only float32 is supported currently, got %s",
+                         TfLiteTypeGetName(input->type));
       return kTfLiteError;
     }
   }
@@ -159,18 +157,26 @@ TfLiteStatus Relu6Eval(TfLiteContext* context, TfLiteNode* node) {
 
 }  // namespace activations
 
-TfLiteRegistration* Register_RELU() {
-  static TfLiteRegistration r = {/*init=*/nullptr,
-                                 /*free=*/nullptr, activations::ReluPrepare,
-                                 activations::ReluEval};
-  return &r;
+TfLiteRegistration Register_RELU() {
+  return {/*init=*/nullptr,
+          /*free=*/nullptr,
+          /*prepare=*/activations::ReluPrepare,
+          /*invoke=*/activations::ReluEval,
+          /*profiling_string=*/nullptr,
+          /*builtin_code=*/0,
+          /*custom_name=*/nullptr,
+          /*version=*/0};
 }
 
-TfLiteRegistration* Register_RELU6() {
-  static TfLiteRegistration r = {/*init=*/nullptr,
-                                 /*free=*/nullptr, activations::Relu6Prepare,
-                                 activations::Relu6Eval};
-  return &r;
+TfLiteRegistration Register_RELU6() {
+  return {/*init=*/nullptr,
+          /*free=*/nullptr,
+          /*prepare=*/activations::Relu6Prepare,
+          /*invoke=*/activations::Relu6Eval,
+          /*profiling_string=*/nullptr,
+          /*builtin_code=*/0,
+          /*custom_name=*/nullptr,
+          /*version=*/0};
 }
 
 }  // namespace micro

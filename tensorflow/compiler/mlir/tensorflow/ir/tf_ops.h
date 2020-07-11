@@ -19,18 +19,26 @@ limitations under the License.
 #ifndef TENSORFLOW_COMPILER_MLIR_TENSORFLOW_IR_TF_OPS_H_
 #define TENSORFLOW_COMPILER_MLIR_TENSORFLOW_IR_TF_OPS_H_
 
-#include "mlir/Analysis/CallInterfaces.h"  // TF:llvm-project
-#include "mlir/Dialect/Traits.h"  // TF:llvm-project
-#include "mlir/IR/Attributes.h"  // TF:llvm-project
-#include "mlir/IR/Builders.h"  // TF:llvm-project
-#include "mlir/IR/Dialect.h"  // TF:llvm-project
-#include "mlir/IR/Matchers.h"  // TF:llvm-project
-#include "mlir/IR/Module.h"  // TF:llvm-project
-#include "mlir/IR/OpImplementation.h"  // TF:llvm-project
-#include "mlir/IR/StandardTypes.h"  // TF:llvm-project
-#include "mlir/IR/TypeUtilities.h"  // TF:llvm-project
+#include "mlir/Dialect/Traits.h"  // from @llvm-project
+#include "mlir/IR/Attributes.h"  // from @llvm-project
+#include "mlir/IR/Builders.h"  // from @llvm-project
+#include "mlir/IR/Dialect.h"  // from @llvm-project
+#include "mlir/IR/Matchers.h"  // from @llvm-project
+#include "mlir/IR/Module.h"  // from @llvm-project
+#include "mlir/IR/OpImplementation.h"  // from @llvm-project
+#include "mlir/IR/StandardTypes.h"  // from @llvm-project
+#include "mlir/IR/TypeUtilities.h"  // from @llvm-project
+#include "mlir/Interfaces/CallInterfaces.h"  // from @llvm-project
+#include "mlir/Interfaces/DerivedAttributeOpInterface.h"  // from @llvm-project
+#include "mlir/Interfaces/InferTypeOpInterface.h"  // from @llvm-project
+#include "mlir/Interfaces/LoopLikeInterface.h"  // from @llvm-project
+#include "mlir/Interfaces/SideEffectInterfaces.h"  // from @llvm-project
+#include "tensorflow/compiler/mlir/tensorflow/ir/tf_attributes.h"
+#include "tensorflow/compiler/mlir/tensorflow/ir/tf_op_interfaces.h"
+#include "tensorflow/compiler/mlir/tensorflow/ir/tf_structs.h"
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_traits.h"
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_types.h"
+#include "tensorflow/compiler/mlir/tensorflow/ir/tf_verifiers.h"
 
 namespace mlir {
 namespace TF {
@@ -50,6 +58,10 @@ class TensorFlowDialect : public Dialect {
   // This attribute marks if a function is stateful.
   // Returns the string description of stateful attribute.
   static StringRef GetStatefulAttrName() { return "tf.signature.is_stateful"; }
+
+  Attribute parseAttribute(DialectAsmParser &parser, Type type) const override;
+
+  void printAttribute(Attribute attr, DialectAsmPrinter &os) const override;
 
   // Parse a type registered to this dialect.
   Type parseType(DialectAsmParser &parser) const override;
@@ -72,6 +84,32 @@ class TensorFlowDialect : public Dialect {
   // value with the desired resultant type.
   Operation *materializeConstant(OpBuilder &builder, Attribute value, Type type,
                                  Location loc) override;
+
+  typedef std::function<void(TensorFlowDialect &dialect)> AdditionalOpFunction;
+
+  // Register an op registration hook which is invoked during construction.
+  //
+  // A hook may use the public addOperations() method to add additional
+  // operations to the dialect. Hooks will only apply to subsequent
+  // instantations of the Dialect/MLIRContext.
+  static void RegisterAdditionalOperationHook(AdditionalOpFunction fn) {
+    additional_operation_hooks_->push_back(std::move(fn));
+  }
+
+  // Re-define publicly the protected addOperations() method from the Dialect
+  // class, usually used in a Dialect constructor. This allows hook
+  // functions to register operations on the TensorFlow dialect using the
+  // same interface.
+  template <typename... Args>
+  void addOperations() {
+    (void)std::initializer_list<int>{
+        0, (addOperation(AbstractOperation::get<Args>(*this)), 0)...};
+  }
+
+ private:
+  // Hook functions which may add additional operations to the dialect.
+  // These are invoked at construction time.
+  static std::vector<AdditionalOpFunction> *additional_operation_hooks_;
 };
 
 // TODO(b/131258166): TensorFlow's mutex.h defines a `mutex_lock` macro, whose
